@@ -18,8 +18,12 @@ urlpatterns = patterns("",
     url(r"^admin/invite_user/$", "pinax.apps.signup_codes.views.admin_invite_user", name="admin_invite_user"),
     url(r"^admin/", include(admin.site.urls)),
     url(r"^about/", include("about.urls")),
-    url(r"^account/", include("pinax.apps.account.urls")),
+    url(r"^account/", include("apps.account.urls")),
     url(r"^openid/(.*)", PinaxConsumer()),
+    url(r"^tabbit/landing$", direct_to_template, {
+        "template": "tabbit/homepage.html",
+    }, name="landing"),
+    url(r"^fb$", "apps.account.views.fb_auth"),
 )
 
 

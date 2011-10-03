@@ -2,18 +2,21 @@ from django.conf import settings
 from django.conf.urls.defaults import *
 
 from pinax.apps.account.forms import SignupForm
+from django.views.generic.simple import direct_to_template
 
 
 if settings.ACCOUNT_OPEN_SIGNUP:
-    signup_view = "pinax.apps.account.views.signup"
+    signup_view = "apps.account.views.signup"
 else:
-    signup_view = "pinax.apps.signup_codes.views.signup"
+    signup_view = "apps.signup_codes.views.signup"
 
 
 urlpatterns = patterns("",
-    url(r"^email/$", "pinax.apps.account.views.email", name="acct_email"),
+    url(r"^email/$", "apps.account.views.email", name="acct_email"),
     url(r"^signup/$", signup_view, name="acct_signup"),
-    url(r"^login/$", "pinax.apps.account.views.login", name="acct_login"),
+    url(r"^fb_signup/$", "apps.account.views.fb_signup", name="fbacct_signup"),
+    url(r"^login/$", "apps.account.views.fb_auth", name="acct_login"),
+    #url(r"^login/$", "pinax.apps.account.views.login", name="acct_login"),
     url(r"^login/openid/$", "pinax.apps.account.views.login", {"associate_openid": True},
         name="acct_login_openid"),
     url(r"^password_change/$", "pinax.apps.account.views.password_change", name="acct_passwd"),
@@ -35,6 +38,9 @@ urlpatterns = patterns("",
     url(r"^password_reset/$", "pinax.apps.account.views.password_reset", name="acct_passwd_reset"),
     url(r"^password_reset/done/$", "pinax.apps.account.views.password_reset_done", name="acct_passwd_reset_done"),
     url(r"^password_reset_key/(?P<uidb36>[0-9A-Za-z]+)-(?P<key>.+)/$", "pinax.apps.account.views.password_reset_from_key", name="acct_passwd_reset_key"),
+    url(r"^tabbit/landing$", direct_to_template, {
+        "template": "../tabbit/homepage.html",
+    }, name=""),
     
     # ajax validation
     (r"^validate/$", "ajax_validation.views.validate", {"form_class": SignupForm}, "signup_form_validate"),

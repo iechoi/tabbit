@@ -18,6 +18,22 @@ from django.contrib.auth.tokens import default_token_generator
 
 from emailconfirmation.models import EmailAddress, EmailConfirmation
 
+# custom includes
+import hashlib
+import hmac
+import base64
+import simplejson as json
+import string
+
+from tabbit.models import TabbitUser
+from django.http import HttpResponse
+from django.views.decorators.csrf import csrf_exempt
+
+# Facebook constants -- TODO: Replace with tabbit secrets!!
+FB_APP_ID = '40800285147'
+FB_APP_SECRET = 'a919a96bd97e79ef208ec610d3aca38a'
+REDIRECT_URI = 'http%3A%2F%2Flocalhost%3A8000%2Ftabbit%2Flanding'
+
 association_model = models.get_model("django_openid", "Association")
 if association_model is not None:
     from django_openid.models import UserOpenidAssociation
@@ -56,6 +72,71 @@ def group_context(group, bridge):
         "group": group,
     }
 
+def fb_auth(request):
+    code = request.GET.get("code", "")
+
+    if (code):
+        # Get an access token
+        auth_url = 'https://graph.facebook.com/oauth/access_token' + '?client_id=' + FB_APP_ID + '&redirect_uri=' + REDIRECT_URI + '&client_secret=' + FB_APP_SECRET + '&code=' + code
+        response = urlparse.parse_qs(urllib.urlopen(auth_url).read())
+        access_token = response["access_token"][-1]
+
+        # Get profile
+        me_url = 'https://graph.facebook.com/me' + '?access_token=' + access_token
+        profile = json.loads(urllib.urlopen(me_url).read())
+        tabbitUser = TabbitUser.objects.filter(FacebookID=profile["id"])
+        auth_login(request, tabbitUser.UserID)
+        return HttpResponse("Profile: " + tabbitUser["FacebookID"] + " Name: " + profile["name"])
+    else:
+        return HttpResponseRedirect("https://graph.facebook.com/oauth/authorize" + '?client_id=' + FB_APP_ID + '&redirect_uri=' + REDIRECT_URI)
+
+def login(request, **kwargs):
+
+    form_class = kwargs.pop("form_class", LoginForm)
+    template_name = kwargs.pop("template_name", "account/login.html")
+    success_url = kwargs.pop("success_url", None)
+    associate_openid = kwargs.pop("associate_openid", False)
+    openid_success_url = kwargs.pop("openid_success_url", None)
+    url_required = kwargs.pop("url_required", False)
+    extra_context = kwargs.pop("extra_context", {})
+    redirect_field_name = kwargs.pop("redirect_field_name", "next")
+
+    group, bridge = group_and_bridge(kwargs)
+
+    if extra_context is None:
+        extra_context = {}
+    if success_url is None:
+        success_url = get_default_redirect(request, redirect_field_name)
+
+    if request.method == "POST" and not url_required:
+        form = form_class(request.POST, group=group)
+        if form.is_valid():
+            form.login(request)
+            if associate_openid and association_model is not None:
+                for openid in request.session.get("openids", []):
+                    assoc, created = UserOpenidAssociation.objects.get_or_create(
+                        user=form.user, openid=openid.openid
+                    )
+                success_url = openid_success_url or success_url
+            messages.add_message(request, messages.SUCCESS,
+                ugettext(u"Successfully logged in as %(user)s.") % {
+                    "user": user_display(form.user)
+                }
+            )
+            return HttpResponseRedirect(success_url)
+    else:
+        form = form_class(group=group)
+
+    ctx = group_context(group, bridge)
+    ctx.update({
+        "form": form,
+        "url_required": url_required,
+        "redirect_field_name": redirect_field_name,
+        "redirect_field_value": request.REQUEST.get(redirect_field_name),
+    })
+    ctx.update(extra_context)
+
+    return render_to_response(template_name, RequestContext(request, ctx))
 
 def login(request, **kwargs):
     
@@ -105,6 +186,58 @@ def login(request, **kwargs):
     
     return render_to_response(template_name, RequestContext(request, ctx))
 
+
+import hashlib
+import hmac
+import base64
+import simplejson as json
+import string
+from django.views.decorators.csrf import csrf_exempt
+
+def base64_url_decode(inp):
+    padding_factor = (4 - len(inp) % 4) % 4 
+    inp += "="*padding_factor
+    return base64.b64decode(unicode(inp).translate(dict(zip(map(ord, u'-_'), u'+/'))))
+
+
+@csrf_exempt
+def fb_signup(request):
+    if request.method == "POST":
+        signed_request = string.split(request.POST.get("signed_request"), ".")
+        sig = base64_url_decode(signed_request[0])
+        payload = base64_url_decode(signed_request[1])
+        data = json.loads(payload)
+        email = data["registration"]["email"]
+        try:
+            user = User.objects.get(username=email)
+            return HttpResponse("User " + email + " already registered.")
+        except User.DoesNotExist:
+            # TODO: verify signature
+            #hasher = hmac.new("a919a96bd97e79ef208ec610d3aca38a", payload, hashlib.sha256)     
+            #digest = hasher.digest()
+            #if digest != sig:
+            #    return HttpResponse("No good: " + sig + " digest: " + digest)
+            #else:
+            #    return HttpResponse("Registered as: " + data["user_id"])
+            user = User()
+            user.username = data["registration"]["email"]
+            user.email = email
+            user.set_password(data["registration"]["password"])
+            user.save()
+            tabbitUser = TabbitUser()
+            tabbitUser.UserID = user
+	    if data["user_id"]:
+                tabbitUser.FacebookID = data["user_id"]
+
+            # TODO: verifcation emails
+            #if settings.ACCOUNT_EMAIL_VERIFICATION:
+            #    ctx.update({
+            #        "email": form.cleaned_data["email"],
+            #        "success_url": success_url,
+            #    })
+            #    ctx = RequestContext(request, ctx)
+            #    return render_to_response("account/verification_sent.html", ctx)
+            return HttpResponseRedirect("/tabbit/landing")
 
 def signup(request, **kwargs):
     
