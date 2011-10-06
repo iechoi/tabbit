@@ -24,15 +24,18 @@ import hmac
 import base64
 import simplejson as json
 import string
+import urlparse
+import urllib
+from datetime import datetime
 
-from tabbit.models import TabbitUser
+from apps.tabbit.models import TabbitUser
 from django.http import HttpResponse
 from django.views.decorators.csrf import csrf_exempt
 
 # Facebook constants -- TODO: Replace with tabbit secrets!!
 FB_APP_ID = '40800285147'
 FB_APP_SECRET = 'a919a96bd97e79ef208ec610d3aca38a'
-REDIRECT_URI = 'http%3A%2F%2Flocalhost%3A8000%2Ftabbit%2Flanding'
+REDIRECT_URI = 'http%3A%2F%2Flocalhost%3A8000%2Faccount%2Ffb_login'
 
 association_model = models.get_model("django_openid", "Association")
 if association_model is not None:
@@ -84,9 +87,15 @@ def fb_auth(request):
         # Get profile
         me_url = 'https://graph.facebook.com/me' + '?access_token=' + access_token
         profile = json.loads(urllib.urlopen(me_url).read())
-        tabbitUser = TabbitUser.objects.filter(FacebookID=profile["id"])
-        auth_login(request, tabbitUser.UserID)
-        return HttpResponse("Profile: " + tabbitUser["FacebookID"] + " Name: " + profile["name"])
+        try:
+            tabbitUser = TabbitUser.objects.get(FacebookID=int(profile["id"]))
+            # Trust FB login and bypass user/password authentication
+            tabbitUser.backend = 'django.contrib.auth.backends.ModelBackend'
+            auth_login(request, tabbitUser)
+            auth_login(request, tabbitUser.UserID)
+        except:
+            return HttpResponse("Error logging in.")
+        return HttpResponseRedirect("/tabbit/landing")
     else:
         return HttpResponseRedirect("https://graph.facebook.com/oauth/authorize" + '?client_id=' + FB_APP_ID + '&redirect_uri=' + REDIRECT_URI)
 
@@ -220,14 +229,16 @@ def fb_signup(request):
             #else:
             #    return HttpResponse("Registered as: " + data["user_id"])
             user = User()
-            user.username = data["registration"]["email"]
+            user.username = email
             user.email = email
             user.set_password(data["registration"]["password"])
             user.save()
-            tabbitUser = TabbitUser()
-            tabbitUser.UserID = user
-	    if data["user_id"]:
-                tabbitUser.FacebookID = data["user_id"]
+            if data["user_id"]:
+                tabbitUser = TabbitUser(UserID = user,
+                                        FacebookID = int(data["user_id"]),
+                                        LastActivity = datetime.utcnow()
+                                       )
+                tabbitUser.save()
 
             # TODO: verifcation emails
             #if settings.ACCOUNT_EMAIL_VERIFICATION:

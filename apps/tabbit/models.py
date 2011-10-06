@@ -10,9 +10,9 @@ class TabbitUser(models.Model):
     # FirstName
     # LastName
     # Email
-    PayPalEmail = models.EmailField()
-    DebtShufflingEnabled = models.BooleanField()
-    LastActivity = models.DateTimeField()
+    PayPalEmail = models.EmailField(null=True)
+    DebtShufflingEnabled = models.BooleanField(default=True)
+    LastActivity = models.DateTimeField(auto_now_add=True, null=True)
 
     def __unicode__(self):
 	return self.UserID
